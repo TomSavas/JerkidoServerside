@@ -1,31 +1,34 @@
 package main
 
 import (
-    "github.com/gorilla/mux"
-    "github.com/globalsign/mgo"
     "log"
     "net/http"
+    "flag"
+	"github.com/gorilla/websocket"
 )
 
-var DB *mgo.Database;
+var addr = flag.String("addr", "localhost:8080", "http service address")
+var upgrader = websocket.Upgrader{} // use default options
+
 func main() {
-    session, err := mgo.Dial("localhost")
-    if err != nil {
-            panic(err)
-    }
-    defer session.Close()
+    ConnectToDatabase()
 
-    DB = session.DB("JerkidoData")
+    //router.HandleFunc("/global/top/{amountOfTopPlayers}", GetTopPlayers).Methods("GET")
+    //router.HandleFunc("/global/position/{playerID}", GetPosition).Methods("GET")
+    //router.HandleFunc("/global/save_score", PutScore).Methods("PUT")
 
-    router := mux.NewRouter()
-    router.HandleFunc("/global/top/{amountOfTopPlayers}", GetTopPlayers).Methods("GET")
-    router.HandleFunc("/global/position/{playerID}", GetPosition).Methods("GET")
-    router.HandleFunc("/global/save_score", PutScore).Methods("PUT")
+    //router.HandleFunc("/room/create", CreateRoom).Methods("GET")
+    //router.HandleFunc("/room/connect/{roomID}", ConnectToRoom).Methods("POST")
+    //router.HandleFunc("/room/disconnect/{roomID}", DisconnectFromRoom).Methods("POST")
+    //router.HandleFunc("/room/{roomID}", GetRoomInfo).Methods("GET")
 
-    router.HandleFunc("/room/create", CreateRoom).Methods("GET")
-    router.HandleFunc("/room/connect/{roomID}", ConnectToRoom).Methods("POST")
-    router.HandleFunc("/room/disconnect/{roomID}", DisconnectFromRoom).Methods("POST")
-    router.HandleFunc("/room/{roomID}", GetRoomInfo).Methods("GET")
+    //router.HandleFunc("/room/create", CreateRoom)
 
-    log.Fatal(http.ListenAndServe(":8000", router))
+
+    http.HandleFunc("/room/create", CreateRoom)
+    http.HandleFunc("/room/observe", Observe)
+    http.HandleFunc("/room/join", JoinRoom)
+
+
+    log.Fatal(http.ListenAndServe(*addr, nil))
 }
