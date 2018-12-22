@@ -13,10 +13,11 @@ type Player struct {
     ID string `json:"id"`
     Score uint32 `json:"score"`
     TopScore uint32 `json:"topscore,omitempty"`
+    Online bool `json:"online,omitempty"`
 }
 
 func GetTopPlayers(w http.ResponseWriter, r *http.Request) {
-    players := DB.C("Players")
+    players := GetCollection("Players")
     amountOfTopPlayers, err := strconv.Atoi(mux.Vars(r)["amountOfTopPlayers"])
     if err != nil {
         log.Println(err)
@@ -37,7 +38,7 @@ func GetTopPlayers(w http.ResponseWriter, r *http.Request) {
 
 func GetPosition(w http.ResponseWriter, r *http.Request) { 
     playerID := mux.Vars(r)["playerID"]
-    players := DB.C("Players")
+    players := GetCollection("Players")
     var topPlayers []Player
 
     err := players.Find(nil).Sort("-topscore").All(&topPlayers)
@@ -60,34 +61,79 @@ func GetPosition(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(200)
 }
 
-func PutScore(w http.ResponseWriter, r *http.Request) {
-    players := DB.C("Players")
+//func SaveScore(w http.ResponseWriter, r *http.Request) {
+//    players := GetCollection("Players")
+//
+//    player, err := JsonToPlayer(r)
+//    if err != nil {
+//        log.Println(err)
+//        w.WriteHeader(400)
+//        return
+//    }
+//
+//    if player.TopScore < player.Score {
+//        player.TopScore = player.Score
+//    }
+//
+//    var existingPlayer Player
+//    err = players.Find(bson.M{"id":player.ID}).One(&existingPlayer)
+//    if err != nil {
+//        err = players.Insert(&player)
+//        if err != nil {
+//            log.Println(err)
+//            w.WriteHeader(500)
+//            return
+//        }
+//        w.WriteHeader(201)
+//        return
+//    }
+//
+//    fieldsToUpdate := bson.M{}
+//    if existingPlayer.Score != player.Score {
+//        fieldsToUpdate["score"] = player.Score
+//    }
+//    if existingPlayer.TopScore < player.Score {
+//        fieldsToUpdate["topscore"] = player.Score
+//    }
+//
+//    if len(fieldsToUpdate) != 0 {
+//        err = players.Update(
+//            bson.M{"id":player.ID},
+//            bson.M{"$set": fieldsToUpdate},
+//        )
+//        if err != nil {
+//            log.Println(err)
+//            w.WriteHeader(500)
+//            return
+//        }
+//
+//        w.WriteHeader(200)
+//    } else {
+//        w.WriteHeader(304)
+//    }
+//}
 
-    player, err := JsonToPlayer(r)
-    if err != nil {
-        log.Println(err)
-        w.WriteHeader(400)
-        return
-    }
+func SaveScore(player *Player) {
+    players := GetCollection("Players")
 
     if player.TopScore < player.Score {
         player.TopScore = player.Score
     }
 
     var existingPlayer Player
-    err = players.Find(bson.M{"id":player.ID}).One(&existingPlayer)
+    err := players.Find(bson.M{"id":player.ID}).One(&existingPlayer)
     if err != nil {
         err = players.Insert(&player)
         if err != nil {
             log.Println(err)
-            w.WriteHeader(500)
             return
         }
-        w.WriteHeader(201)
         return
     }
 
     fieldsToUpdate := bson.M{}
+    fieldsToUpdate["online"] = player.Online
+
     if existingPlayer.Score != player.Score {
         fieldsToUpdate["score"] = player.Score
     }
@@ -102,12 +148,8 @@ func PutScore(w http.ResponseWriter, r *http.Request) {
         )
         if err != nil {
             log.Println(err)
-            w.WriteHeader(500)
             return
         }
 
-        w.WriteHeader(200)
-    } else {
-        w.WriteHeader(304)
     }
 }
