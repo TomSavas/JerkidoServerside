@@ -32,8 +32,8 @@ func GetTopPlayers(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(500)
         return
     }
-    json.NewEncoder(w).Encode(topPlayers)
     w.WriteHeader(200)
+    json.NewEncoder(w).Encode(topPlayers)
 }
 
 func GetPosition(w http.ResponseWriter, r *http.Request) { 
