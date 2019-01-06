@@ -49,7 +49,8 @@ func GetRooms() *mgo.Collection {
 func CreateRoom(w http.ResponseWriter, r *http.Request) {
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {
-        fmt.Println("Error upgrading http connection to a websocket.")
+        fmt.Print("Error upgrading http connection to a websocket: ")
+        fmt.Println(err)
         return
     }
     defer conn.Close()
@@ -57,18 +58,19 @@ func CreateRoom(w http.ResponseWriter, r *http.Request) {
     var owner User
     err = conn.ReadJSON(&owner)
     if err != nil {
-        fmt.Println("Error reading message")
+        fmt.Print("Error reading message: ")
+        fmt.Println(err)
         return
     }
 
     rooms := GetRooms()
-    room := Room{GenerateUniqueRoomCode(rooms), Play, []string{}, []string{owner.ID}, owner.ID}
+    room := Room{GenerateUniqueRoomCode(rooms), WaitingForPlayers, []string{}, []string{owner.ID}, owner.ID}
 
     fmt.Println("Room: " + room.ID + " owner: " + room.OwnerID)
 
     err = rooms.Insert(&room)
     if err != nil {
-        log.Println(err)
+        fmt.Println(err)
         return
     }
     conn.WriteMessage(websocket.TextMessage, []byte("{\"id\":\"" + room.ID + "\"}"))
@@ -85,7 +87,8 @@ func CreateRoom(w http.ResponseWriter, r *http.Request) {
 func Observe(w http.ResponseWriter, r *http.Request) {
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {
-        fmt.Println("Error upgrading http connection to a websocket.")
+        fmt.Print("Error upgrading http connection to a websocket: ")
+        fmt.Println(err)
         return
     }
     defer conn.Close()
@@ -93,7 +96,8 @@ func Observe(w http.ResponseWriter, r *http.Request) {
     var observer User
     err = conn.ReadJSON(&observer)
     if err != nil {
-        fmt.Printf("Error reading observer: %+v", observer)
+        fmt.Printf("Error reading observer: %+v: ", observer)
+        fmt.Println(err)
         return
     }
     fmt.Println("Observer connected: " + observer.ID)
@@ -140,7 +144,8 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
         err = rooms.Find(bson.M{"id":roomID}).One(&existingRoom)
 
         if err != nil {
-            log.Println("Failed to read rooms")
+            fmt.Print("Failed to read rooms: ")
+            fmt.Println(err)
             break
         }
 
@@ -148,7 +153,7 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
 
         for _, err = range(errs) {
             if err != nil {
-                log.Println(err)
+                fmt.Println(err)
                 //return
             }
         }
@@ -178,6 +183,15 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
         switch existingRoom.State {
             case WaitingForPlayers:
                 fmt.Println("Waiting for players...")
+                var roomInfo RoomInfo
+                err = connection.ReadJSON(&roomInfo)
+                if(roomInfo.State != WaitingForPlayers) {
+                    fmt.Printf("Changing the state of the room: %d", roomInfo.State)
+                    rooms.Update(
+                        bson.M{"id":existingRoom.ID},
+                        bson.M{"$set": bson.M{"state":roomInfo.State}},
+                    )
+                }
             case CountingDown_3:
                 fmt.Println("Counting down 3...")
             case CountingDown_2:
@@ -201,7 +215,7 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
         roomInfo := RoomInfo{existingRoom.ID, existingRoom.State, players}
         err = connection.WriteJSON(roomInfo)
         if err != nil {
-            log.Println(err)
+            fmt.Println(err)
         }
 
         time.Sleep(100 * time.Millisecond)
@@ -241,14 +255,15 @@ func JoinRoom(w http.ResponseWriter, r *http.Request) {
     var user User
     err := conn.ReadJSON(&user)
     if err != nil {
-        fmt.Println("Error reading connecting user")
+        fmt.Print("Error reading connecting user: ")
+        fmt.Println(err)
         return
     }
 
     rooms := GetRooms()
     //playerData, err := WsJsonToMap(msg)
     if err != nil {
-        log.Println(err)
+        fmt.Println(err)
         return
     }
 
@@ -256,7 +271,7 @@ func JoinRoom(w http.ResponseWriter, r *http.Request) {
     err = rooms.Find(bson.M{"id":user.RoomID}).One(&existingRoom)
 
     if err != nil {
-        log.Println(err)
+        fmt.Println(err)
         return
     }
 
@@ -279,7 +294,7 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *websocket.Conn
     connectionClosed := make(chan bool, 1)
 
     connection.SetCloseHandler(func (code int, text string) error {
-        log.Printf("Player (ID: %s, score: %d) connection closed.\n\tCode:%d \n\tText:%s",player.ID, player.Score, code, text)
+        fmt.Printf("Player (ID: %s, score: %d) connection closed.\n\tCode:%d \n\tText:%s",player.ID, player.Score, code, text)
         connectionClosed <- true
 
         return nil
@@ -295,7 +310,8 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *websocket.Conn
             default:
                 err := connection.ReadJSON(&player)
                 if err != nil {
-                    fmt.Println("Error reading message")
+                    fmt.Print("Error reading message: ")
+                    fmt.Println(err)
                     break
                 } else {
                     SaveScore(&player)
