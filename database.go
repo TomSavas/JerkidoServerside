@@ -32,6 +32,7 @@ func PlayersInRoom(room *Room) ([]Player, []error) {
     for i := 0; i < len((*room).PlayerIDs); i++ {
         err := db.C("Players").Find(bson.M{"id":(*room).PlayerIDs[i]}).One(&player)
         if err != nil {
+            fmt.Println("Error while looking for players in room. ")
             fmt.Println(err)
             errors = append(errors, err)
             continue
