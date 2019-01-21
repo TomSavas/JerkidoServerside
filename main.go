@@ -27,7 +27,7 @@ func main() {
 
     http.HandleFunc("/room/create", CreateRoom)
     http.HandleFunc("/room/observe", Observe)
-    http.HandleFunc("/room/join", JoinRoom)
+    http.HandleFunc("/room/join", Join)
 
 
     srv := &http.Server{

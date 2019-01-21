@@ -1,37 +1,37 @@
 package main
 
 import (
-    //"encoding/json"
-    "github.com/gorilla/mux"
+    //"github.com/gorilla/mux"
     "github.com/gorilla/websocket"
     "gopkg.in/mgo.v2/bson"
-    "log"
-    "net/http"
-    "math/rand"
-    "time"
+
+    //"log"
     "bytes"
-    "github.com/globalsign/mgo"
     "fmt"
-    "os"
-    "os/exec"
+    "math/rand"
+    "net/http"
     "sort"
+    "time"
+
+    "github.com/globalsign/mgo"
 )
 
 type Room struct {
-    ID string `json:"id"`
-    State RoomState `json:"state"`
-    PlayerIDs []string `json:"playerids"`
-    ObeserverIDs []string `json:"observerids"`
-    OwnerID string `json:"ownerid"`
+    ID           string    `json:"id"`
+    State        RoomState `json:"state"`
+    PlayerIDs    []string  `json:"playerids"`
+    ObeserverIDs []string  `json:"observerids"`
+    OwnerID      string    `json:"ownerid"`
 }
 
 type RoomInfo struct {
-    ID string `json:"id"`
-    State RoomState `json:"state"`
-    Players []Player `json:"players"`
+    ID      string    `json:"id"`
+    State   RoomState `json:"state"`
+    Players []Player  `json:"players"`
 }
 
 type RoomState int
+
 const (
     WaitingForPlayers RoomState = 0
     CountingDown_3    RoomState = 1
@@ -47,54 +47,40 @@ func GetRooms() *mgo.Collection {
 }
 
 func CreateRoom(w http.ResponseWriter, r *http.Request) {
-    conn, err := upgrader.Upgrade(w, r, nil)
-    if err != nil {
-        fmt.Print("Error upgrading http connection to a websocket: ")
-        fmt.Println(err)
-        return
-    }
-    defer conn.Close()
+connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
 
     var owner User
-    err = conn.ReadJSON(&owner)
+    err = connection.ReadJSON(&owner)
     if err != nil {
-        fmt.Print("Error reading message: ")
+        fmt.Print("Error reading room creator. ")
         fmt.Println(err)
         return
     }
 
     rooms := GetRooms()
     room := Room{GenerateUniqueRoomCode(rooms), WaitingForPlayers, []string{}, []string{owner.ID}, owner.ID}
-
-    fmt.Println("Room: " + room.ID + " owner: " + room.OwnerID)
+    fmt.Println("Created a new room: " + room.ID + " owner: " + room.OwnerID)
 
     err = rooms.Insert(&room)
     if err != nil {
         fmt.Println(err)
         return
     }
-    conn.WriteMessage(websocket.TextMessage, []byte("{\"id\":\"" + room.ID + "\"}"))
+    connection.WriteMessage(websocket.TextMessage, []byte("{\"id\":\""+room.ID+"\"}"))
 
     if owner.IsPlayer {
-        //JoinRoom(w, r, connection, room.ID)
+        JoinRoom(w, r, connection, isConnectionClosed, room.ID)
     } else {
-        ObserveRoom(w, r, conn, room.ID)
+        //ObserveRoom(w, r, connection, isConnectionClosed, room.ID)
+        ControlRoom(w, r, connection, isConnectionClosed, room.ID, ObserveRoom)
     }
-
-    //ShowProgress(w, r, conn, room.ID)
 }
 
 func Observe(w http.ResponseWriter, r *http.Request) {
-    conn, err := upgrader.Upgrade(w, r, nil)
-    if err != nil {
-        fmt.Print("Error upgrading http connection to a websocket: ")
-        fmt.Println(err)
-        return
-    }
-    defer conn.Close()
+    connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
 
     var observer User
-    err = conn.ReadJSON(&observer)
+    err = connection.ReadJSON(&observer)
     if err != nil {
         fmt.Printf("Error reading observer: %+v: ", observer)
         fmt.Println(err)
@@ -102,46 +88,36 @@ func Observe(w http.ResponseWriter, r *http.Request) {
     }
     fmt.Println("Observer connected: " + observer.ID)
 
-    ObserveRoom(w, r, conn, observer.RoomID)
+    ObserveRoom(w, r, connection, isConnectionClosed, observer.RoomID)
 }
 
-func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, roomID string) {
-    clear := func() {
-        c := exec.Command("clear")
-        c.Stdout = os.Stdout
-        c.Run()
-    }
-
-    connectionClosed := make(chan bool, 1)
-
-    connection.SetCloseHandler(func (code int, text string) error {
-        fmt.Printf("Observer's connection closed.\n\tCode:%d \n\tText:%s", code, text)
-
-        connectionClosed <- true
-        return nil
-    })
-
-    defer connection.Close()
+func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, isConnectionClosed chan bool, roomID string) {
     var existingRoom Room
     rooms := GetRooms()
-    err := rooms.Find(bson.M{"id":roomID}).One(&existingRoom)
+    err := rooms.Find(bson.M{"id": roomID}).One(&existingRoom)
     fmt.Println("Room: " + existingRoom.ID + " owner: " + existingRoom.OwnerID)
 
-    someOnline := 0
-    maxOnline := 0
-    updatedAfterLastDisconnect := false
-    for {
-        select {
-            case _, _ = <- connectionClosed:
-                fmt.Println("Connection broken")
+    //If there is no Read method active, the closeHandler is not triggered...
+    go func() {
+        for {
+            if IsConnectionClosed(isConnectionClosed) {
+                fmt.Println("Connection closed by the observer")
                 return
-            default:
-                //fmt.Println("Running")
-                someOnline = 0
-                //continue
+            }
+
+            _, _, _ = connection.ReadMessage()
+        }
+    }()
+
+    maxOnline := 0
+    for {
+        someOnline := 0
+        if IsConnectionClosed(isConnectionClosed) {
+            fmt.Println("Connection closed by the observer (in observe)")
+            return
         }
 
-        err = rooms.Find(bson.M{"id":roomID}).One(&existingRoom)
+        err = rooms.Find(bson.M{"id": roomID}).One(&existingRoom)
 
         if err != nil {
             fmt.Print("Failed to read rooms: ")
@@ -151,17 +127,16 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
 
         players, errs := PlayersInRoom(&existingRoom)
 
-        for _, err = range(errs) {
+        for _, err = range errs {
             if err != nil {
                 fmt.Println(err)
                 //return
             }
         }
 
-        for _, player := range(players) {
+        for _, player := range players {
             if player.Online {
                 someOnline++
-                updatedAfterLastDisconnect = false
             }
         }
 
@@ -169,157 +144,305 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
             maxOnline = someOnline
         }
 
-        if someOnline < 1 {
-            if !updatedAfterLastDisconnect {
-                updatedAfterLastDisconnect = true
-            } else {
-                continue
-            }
-        }
-
-        clear()
+        ClearTerminal()
         fmt.Printf("People online: %d\n", someOnline)
         fmt.Printf("Max people online: %d\n", maxOnline)
         switch existingRoom.State {
-            case WaitingForPlayers:
-                fmt.Println("Waiting for players...")
-                var roomInfo RoomInfo
-                err = connection.ReadJSON(&roomInfo)
-                if(roomInfo.State != WaitingForPlayers) {
-                    fmt.Printf("Changing the state of the room: %d", roomInfo.State)
-                    rooms.Update(
-                        bson.M{"id":existingRoom.ID},
-                        bson.M{"$set": bson.M{"state":roomInfo.State}},
-                    )
-                }
-            case CountingDown_3:
-                fmt.Println("Counting down 3...")
-            case CountingDown_2:
-                fmt.Println("Counting down 2...")
-            case CountingDown_1:
-                fmt.Println("Counting down 1...")
-            case CountingDown_0:
-                fmt.Println("Counting down 0...")
-            case Play:
-                sort.Slice(players, func(i, j int) bool { return players[i].Score > players[j].Score })
+        case WaitingForPlayers:
+            fmt.Println("Waiting for players...")
+        case CountingDown_3:
+            fmt.Println("Counting down 3...")
+        case CountingDown_2:
+            fmt.Println("Counting down 2...")
+        case CountingDown_1:
+            fmt.Println("Counting down 1...")
+        case CountingDown_0:
+            fmt.Println("Counting down 0...")
+        case Play:
+            sort.Slice(players, func(i, j int) bool { return players[i].Score > players[j].Score })
 
-                fmt.Println("Room: " + roomID + " owner: " + existingRoom.OwnerID)
-                for _, player := range(players) {
-                    fmt.Printf("ID: %s, score: %d, online: %t\n", player.ID, player.Score, player.Online)
-                }
-            case End:
-                fmt.Println("Game ended")
-            default:
-                fmt.Println("Wrong game state")
+            fmt.Println("Room: " + roomID + " owner: " + existingRoom.OwnerID)
+            for _, player := range players {
+                fmt.Printf("ID: %s, score: %d, online: %t\n", player.ID, player.Score, player.Online)
+            }
+        case End:
+            fmt.Println("Game ended")
+        default:
+            fmt.Println("Wrong game state")
         }
+
         roomInfo := RoomInfo{existingRoom.ID, existingRoom.State, players}
+
         err = connection.WriteJSON(roomInfo)
         if err != nil {
-            fmt.Println(err)
+            if IsConnectionClosed(isConnectionClosed) {
+                fmt.Println("Connection closed by the observer (in observe)")
+                return
+            } else {
+                fmt.Println("Cannot write room info to the observer")
+                fmt.Println(err)
+            }
         }
 
         time.Sleep(100 * time.Millisecond)
     }
 }
 
-func GenerateUniqueRoomCode(rooms *mgo.Collection) string {
-    code := GenerateRoomCode(5);
+func ControlRoom(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, isConnectionClosed chan bool, roomID string, onPlay func(http.ResponseWriter, *http.Request, *websocket.Conn, chan bool, string)) {
+	var room Room
+	rooms := GetRooms()
 
-    if(rooms.Find(bson.M{"ID":code}) == nil) {
-        return GenerateUniqueRoomCode(rooms)
+	err := rooms.Find(bson.M{"id": roomID}).One(&room)
+	fmt.Println("Room: " + room.ID + " owner: " + room.OwnerID)
+
+    roomStateChanged := make(chan interface{}, 1)
+    if room.State == WaitingForPlayers {
+        go WaitForRoomStateUpdate(connection, roomStateChanged)
     }
 
-    return code
+	for {
+        if IsConnectionClosed(isConnectionClosed) {
+            fmt.Println("Connection closed by the observer")
+            return
+        }
+
+		err = rooms.Find(bson.M{"id": roomID}).One(&room)
+		if err != nil {
+			fmt.Print("Failed to read rooms: ")
+			fmt.Println(err)
+			break
+		}
+
+		players, errs := PlayersInRoom(&room)
+		for _, err = range errs {
+			if err != nil {
+				fmt.Println("Error while trying to read players. ")
+				fmt.Println(err)
+				return
+			}
+		}
+
+		if hasValue, _ := ChannelHasValue(roomStateChanged); hasValue {
+            go func() {
+                ChangeRoomState(room, CountingDown_3)
+                time.Sleep(1000 * time.Millisecond)
+                ChangeRoomState(room, CountingDown_2)
+                time.Sleep(1000 * time.Millisecond)
+                ChangeRoomState(room, CountingDown_1)
+                time.Sleep(1000 * time.Millisecond)
+                ChangeRoomState(room, CountingDown_0)
+                time.Sleep(1000 * time.Millisecond)
+                ChangeRoomState(room, Play)
+		    }()
+            onPlay(w, r, connection, isConnectionClosed, roomID)
+            break
+		}
+
+		ClearTerminal()
+		for _, player := range players {
+			fmt.Printf("%s %d %t\n", player.ID, player.Score, player.Online)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+}
+
+func WaitForRoomStateUpdate(connection *websocket.Conn, roomStateChanged chan interface{}) {
+	var room Room
+
+	for {
+		err := connection.ReadJSON(&room)
+		if err != nil {
+			fmt.Println("Failed to read room update. ")
+			fmt.Print(err)
+			return
+		}
+
+		if room.State != WaitingForPlayers {
+			roomStateChanged <- true
+			break
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func ChangeRoomState(room Room, state RoomState) error {
+	var err error = nil
+	if room.State != state {
+		fmt.Printf("Changing the state of the room from %d to %d", room.State, state)
+
+		err = GetRooms().Update(
+			bson.M{"id": room.ID},
+			bson.M{"$set": bson.M{"state": state}},
+		)
+	}
+
+	return err
+}
+
+func GenerateUniqueRoomCode(rooms *mgo.Collection) string {
+	code := GenerateRoomCode(5)
+
+	if (rooms.Find(bson.M{"ID": code}) == nil) {
+		return GenerateUniqueRoomCode(rooms)
+	}
+
+	return code
 }
 
 func GenerateRoomCode(codeLength int) string {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-    var code bytes.Buffer
+	var code bytes.Buffer
 
-    for i := 0; i < codeLength; i++ {
-        if rng.Intn(2) == 0 {
-            letter := rng.Intn(26)
-            code.WriteString(string(letter + 65))
-        } else {
-            number := rng.Intn(10)
-            code.WriteString(string(number + 48))
-        }
-    }
+	for i := 0; i < codeLength; i++ {
+		if rng.Intn(2) == 0 {
+			letter := rng.Intn(26)
+			code.WriteString(string(letter + 65))
+		} else {
+			number := rng.Intn(10)
+			code.WriteString(string(number + 48))
+		}
+	}
 
-    return code.String()
+	return code.String()
 }
 
-func JoinRoom(w http.ResponseWriter, r *http.Request) {
-    conn, _ := upgrader.Upgrade(w, r, nil) // error ignored for sake of simplicity
+func Join(w http.ResponseWriter, r *http.Request) {
+	connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
 
-    var user User
-    err := conn.ReadJSON(&user)
-    if err != nil {
-        fmt.Print("Error reading connecting user: ")
-        fmt.Println(err)
-        return
-    }
+	var user User
+	err = connection.ReadJSON(&user)
+	if err != nil {
+		fmt.Print("Error reading connecting user: ")
+		fmt.Println(err)
+		return
+	}
 
-    rooms := GetRooms()
-    //playerData, err := WsJsonToMap(msg)
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
+	rooms := GetRooms()
+	if err != nil {
+		fmt.Println("Failed reading rooms. ")
+		fmt.Println(err)
+		return
+	}
 
-    var existingRoom Room
-    err = rooms.Find(bson.M{"id":user.RoomID}).One(&existingRoom)
+	fmt.Println("looking for a room")
+	var existingRoom Room
+	err = rooms.Find(bson.M{"id": user.RoomID}).One(&existingRoom)
 
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
+	if err != nil {
+		fmt.Println("Failed geting room with id: " + user.RoomID)
+		fmt.Println(err)
+		return
+	}
 
-    if !Exists(existingRoom.PlayerIDs, user.ID) {
-        changedPlayerIDs := append(existingRoom.PlayerIDs, user.ID)
-        rooms.Update(
-            bson.M{"id":existingRoom.ID},
-            bson.M{"$set": bson.M{"playerids":changedPlayerIDs}},
-        )
-    }
+	if !Exists(existingRoom.PlayerIDs, user.ID) {
+		SaveScore(&Player{user.ID, 0, 0, true}) //Don't leave this. It will override an existing player's top score.
 
-    PlayGame(w, r, conn)
+		changedPlayerIDs := append(existingRoom.PlayerIDs, user.ID)
+		err = rooms.Update(
+			bson.M{"id": existingRoom.ID},
+			bson.M{"$set": bson.M{"playerids": changedPlayerIDs}},
+		)
+		if err != nil {
+			fmt.Println("Failed adding player to playerids in room: " + user.RoomID)
+			fmt.Println(err)
+		}
+	}
+
+	PlayGame(w, r, connection, isConnectionClosed, existingRoom.ID)
 }
 
-func PlayGame(w http.ResponseWriter, r *http.Request, connection *websocket.Conn) {
-    defer connection.Close()
+func JoinRoom(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, isConnectionClosed chan bool, roomID string) {
+	connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
 
-    var player Player
-    player.Online = true
-    connectionClosed := make(chan bool, 1)
+	var user User
+	err = connection.ReadJSON(&user)
+	if err != nil {
+		fmt.Print("Error reading connecting user: ")
+		fmt.Println(err)
+		return
+	}
 
-    connection.SetCloseHandler(func (code int, text string) error {
-        fmt.Printf("Player (ID: %s, score: %d) connection closed.\n\tCode:%d \n\tText:%s",player.ID, player.Score, code, text)
-        connectionClosed <- true
+	rooms := GetRooms()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
-        return nil
-    })
+	var existingRoom Room
+	err = rooms.Find(bson.M{"id": user.RoomID}).One(&existingRoom)
 
-    for {
-        select {
-            case _, _ = <- connectionClosed:
-                fmt.Println("Player disconnected")
-                player.Online = false
-                SaveScore(&player)
-                return
-            default:
-                err := connection.ReadJSON(&player)
-                if err != nil {
-                    fmt.Print("Error reading message: ")
-                    fmt.Println(err)
-                    break
-                } else {
-                    SaveScore(&player)
-                }
-        }
-    }
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	if !Exists(existingRoom.PlayerIDs, user.ID) {
+		changedPlayerIDs := append(existingRoom.PlayerIDs, user.ID)
+		rooms.Update(
+			bson.M{"id": existingRoom.ID},
+			bson.M{"$set": bson.M{"playerids": changedPlayerIDs}},
+		)
+	}
+
+	PlayGame(w, r, connection, isConnectionClosed, existingRoom.ID)
 }
 
+func PlayGame(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, isConnectionClosed chan bool, roomID string) {
+	var player Player
+	player.Online = true
+
+	connection.WriteJSON(RoomInfo{roomID, WaitingForPlayers, []Player{}})
+
+	previousRoomState := WaitingForPlayers
+	for {
+		if IsConnectionClosed(isConnectionClosed) {
+			fmt.Println("Player disconnected")
+			player.Online = false
+			SaveScore(&player)
+			return
+		}
+
+		var room Room
+		err := GetRooms().Find(bson.M{"id": roomID}).One(&room)
+
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		if room.State != previousRoomState {
+			previousRoomState = room.State
+			err = connection.WriteJSON(RoomInfo{room.ID, room.State, []Player{}})
+			if room.State == Play {
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	for {
+		err := connection.ReadJSON(&player)
+
+		if err != nil {
+			if IsConnectionClosed(isConnectionClosed) {
+				fmt.Println("Player disconnected")
+				player.Online = false
+				SaveScore(&player)
+				break
+			} else {
+				fmt.Print("Error reading message: ")
+				fmt.Println(err)
+			}
+		} else {
+			SaveScore(&player)
+		}
+	}
+}
+
+/*
 func DisconnectFromRoom(w http.ResponseWriter, r *http.Request) {
     rooms := GetRooms()
     roomID := mux.Vars(r)["roomID"]
@@ -357,3 +480,4 @@ func DisconnectFromRoom(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(404)
     }
 }
+*/
