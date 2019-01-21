@@ -4,46 +4,10 @@ import (
     "io/ioutil"
     "encoding/json"
     "net/http"
-    "time"
-    "math/rand"
-    "bytes"
-    "github.com/globalsign/mgo"
-    "gopkg.in/mgo.v2/bson"
-    "log"
+    //"github.com/gorilla/websocket"
+    "os"
+    "os/exec"
 )
-
-func GenerateRoomCode(codeLength int) string {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-    var code bytes.Buffer
-
-    for i := 0; i < codeLength; i++ {
-        if rng.Intn(2) == 0 {
-            letter := rng.Intn(26)
-            code.WriteString(string(letter + 65))
-        } else {
-            number := rng.Intn(10)
-            code.WriteString(string(number + 48))
-        }
-    }
-
-    return code.String()
-}
-
-func GatherPlayers(room *Room, db *mgo.Database) []Player {
-    var players []Player
-    var player Player
-
-    for i := 0; i < len((*room).PlayerIDs); i++ {
-        err := db.C("Players").Find(bson.M{"id":(*room).PlayerIDs[i]}).One(&player)
-        if err != nil {
-            log.Println(err)
-            continue
-        }
-        players = append(players, player)
-    }
-
-    return players
-}
 
 func Exists(items []string, item string) bool {
     for i := 0; i < len(items); i++ {
@@ -66,6 +30,14 @@ func JsonToMap(r *http.Request) (map[string]interface{}, error) {
     return parsedJson, err
 }
 
+func WsJsonToMap(bytes []byte) (map[string]interface{}, error) {
+    parsedJson := make(map[string]interface{})
+
+    err := json.Unmarshal(bytes, &parsedJson)
+
+    return parsedJson, err
+}
+
 func JsonToPlayer(r *http.Request) (Player, error) {
     body, err := ioutil.ReadAll(r.Body)
     var player Player
@@ -80,4 +52,19 @@ func JsonToPlayer(r *http.Request) (Player, error) {
     }
 
     return player, err
+}
+
+func ChannelHasValue(channel chan interface{}) (bool, interface{}) {
+    select {
+        case value, _ := <- channel:
+            return true, value
+        default:
+            return false, nil
+    }
+}
+
+func ClearTerminal() {
+    c := exec.Command("clear")
+    c.Stdout = os.Stdout
+    c.Run()
 }
