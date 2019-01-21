@@ -10,6 +10,18 @@ Http requests will be served on port 8080.
 Rooms will use _websocket_ connection, as I found that websocket connection is more _time efficient_ in sending _lots_ of requests in quick succession when compared to http. 
 Websocket connection will be handled on port 8081.
 
+## TODOS
+ * Code cleanup (general points):
+   * Merge *websocket.Conn and isConnectionClosed channel into a single struct
+   * Write nice server activity logging system
+   * Get rid of unnecessary ws w/rs
+   * Split util functions into separate files
+   * Write tests
+   * Figure out how to deal nicely with _if err != nil..._ spam (monads might fit nicely for my purposes)
+ * Figure out a way to not have to pull the whole database and sort it in order to get the user's global position. Current implementation will definitely be very slow and painful for the server if more people join in. Also it will slow down as the time passes.
+ * Possibly drop mongo and move to simpler sql db system.
+ * MAYBE security? I'm not very concerned with it as this is only meant for a game. The game has no passwords or any sensitive data that might cause trouble when intercepted or fiddled with.
+
 ## Basic database objects
 Player: `{"id": "349utlkj23rojrl324ijr23_USERNAME", "score": 0, "top_score": 100, "online": 1}`
    * id - combination of user's device UID and username
@@ -54,7 +66,3 @@ The server will send a json object represeting the room every time the state of 
 A _pbserver_ establishes a connection by sending a json object: `{"id":"349utlkj23rojrl324ijr23_USERNAME", "roomid": "GR9T3"}`. If the json object is correct, then the server adds the player to the player list in the room. 
 
 The server will send a json object represeting the room every time the state of the room changes. After the room state has been set to _Play_ the server will expect the player to send a json object representing the player: `{"id":"349utlkj23rojrl324ijr23_USERNAME", "score": <current player score>}`. After the playtime has ended, the server will send one last json object representing the room, but now the `state` field will contain code for _End_.
-
-## TODOS
-   * Figure out a way to not have to pull the whole database and sort it in order to get the user's global position. Current implementation will definitely be very slow and painful for the server if more people join in. Also it will slow down as the time passes.
-   * MAYBE security? I'm not very concerned with it as this is only meant for a game. The game has no passwords or any sensitive data that might cause trouble when intercepted or fiddled with.
