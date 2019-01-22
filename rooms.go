@@ -190,6 +190,7 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
 }
 
 func ControlRoom(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, isConnectionClosed chan bool, roomID string, onPlay func(http.ResponseWriter, *http.Request, *websocket.Conn, chan bool, string)) {
+	var oldRoom Room
 	var room Room
 	rooms := GetRooms()
 
@@ -239,10 +240,29 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
             break
 		}
 
+        // Rudamentary check if room has been updated
+        if room.ID == oldRoom.ID && room.State == oldRoom.State && len(room.PlayerIDs) == len(oldRoom.PlayerIDs) && len(room.ObeserverIDs) == len(oldRoom.ObeserverIDs) {
+            time.Sleep(100 * time.Millisecond)
+            continue
+        }
+        oldRoom = room
+
 		ClearTerminal()
 		for _, player := range players {
-			fmt.Printf("%s %d %t\n", player.ID, player.Score, player.Online)
+            fmt.Printf("ID: %s, score: %d, online: %t\n", player.ID, player.Score, player.Online)
 		}
+        roomInfo := RoomInfo{room.ID, room.State, players}
+
+        err = connection.WriteJSON(roomInfo)
+        if err != nil {
+            if IsConnectionClosed(isConnectionClosed) {
+                fmt.Println("Connection closed by the controling user (in control)")
+                return
+            } else {
+                fmt.Println("Cannot write room info to the controling user")
+                fmt.Println(err)
+            }
+        }
 
 		time.Sleep(100 * time.Millisecond)
 	}
