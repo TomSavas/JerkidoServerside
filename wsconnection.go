@@ -5,15 +5,21 @@ import (
     "github.com/gorilla/websocket"
 )
 
-var DefaultUpgrader = websocket.Upgrader{}
-
 type WSConnection struct {
     *websocket.Conn
 
     isConnectionClosed chan bool
 }
 
-func ToWSConnection(writer http.ResponseWriter, request *http.Request, upgrader websocket.Upgrader) (*WSConnection, error) {
+func ToWSConnection(writer http.ResponseWriter, request *http.Request, upgrader *websocket.Upgrader) (*WSConnection, error) {
+    if upgrader == nil {
+        upgrader = &websocket.Upgrader{}
+
+        upgrader.CheckOrigin = func(r * http.Request) bool {
+            return true
+        }
+    }
+
     conn, err := upgrader.Upgrade(writer, request, nil)
     if err != nil {
         return nil, err

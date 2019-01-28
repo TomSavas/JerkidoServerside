@@ -49,7 +49,7 @@ func GetRooms() *mgo.Collection {
 
 func CreateRoom(w http.ResponseWriter, r *http.Request) {
     //connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
-    connection, err := ToWSConnection(w, r, DefaultUpgrader)
+    connection, err := ToWSConnection(w, r, nil)
 
     var owner User
     err = connection.ReadJSON(&owner)
@@ -91,7 +91,7 @@ func CreateRoom(w http.ResponseWriter, r *http.Request) {
 
 func Observe(w http.ResponseWriter, r *http.Request) {
     //connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
-    connection, err := ToWSConnection(w, r, DefaultUpgrader)
+    connection, err := ToWSConnection(w, r, nil)
 
     var observer User
     err = connection.ReadJSON(&observer)
@@ -347,7 +347,7 @@ func GenerateRoomCode(codeLength int) string {
 
 func Join(w http.ResponseWriter, r *http.Request) {
 	//connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
-    connection, err := ToWSConnection(w, r, DefaultUpgrader)
+    connection, err := ToWSConnection(w, r, nil)
 
 	var user User
 	err = connection.ReadJSON(&user)
