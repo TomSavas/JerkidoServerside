@@ -46,7 +46,7 @@ func (conn *WSConnection) setDefaultCloseHandler() {
 }
 
 func (conn *WSConnection) SetCloseHandler(handler func(int, string) error) {
-    conn.SetCloseHandler(func (code int, text string) error {
+    conn.Conn.SetCloseHandler(func (code int, text string) error {
         err := handler(code, text)
         conn.isConnectionClosed <- true
 
