@@ -1,8 +1,6 @@
 package main
 
 import (
-    //"io/ioutil"
-    //"encoding/json"
     "net/http"
     "github.com/gorilla/websocket"
     "fmt"

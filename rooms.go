@@ -48,7 +48,8 @@ func GetRooms() *mgo.Collection {
 }
 
 func CreateRoom(w http.ResponseWriter, r *http.Request) {
-connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
+    //connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
+    connection, err := ToWSConnection(w, r, DefaultUpgrader)
 
     var owner User
     err = connection.ReadJSON(&owner)
@@ -80,16 +81,17 @@ connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
     connection.WriteMessage(websocket.TextMessage, []byte("{\"id\":\""+room.ID+"\"}"))
 
     if owner.IsPlayer {
-        //JoinRoom(w, r, connection, isConnectionClosed, room.ID)
-        ControlRoom(w, r, connection, isConnectionClosed, room.ID, JoinRoom)
+        //ControlRoom(w, r, connection, isConnectionClosed, room.ID, JoinRoom)
+        ControlRoom(w, r, connection, room.ID, JoinRoom)
     } else {
-        //ObserveRoom(w, r, connection, isConnectionClosed, room.ID)
-        ControlRoom(w, r, connection, isConnectionClosed, room.ID, ObserveRoom)
+        //ControlRoom(w, r, connection, isConnectionClosed, room.ID, ObserveRoom)
+        ControlRoom(w, r, connection, room.ID, ObserveRoom)
     }
 }
 
 func Observe(w http.ResponseWriter, r *http.Request) {
-    connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
+    //connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
+    connection, err := ToWSConnection(w, r, DefaultUpgrader)
 
     var observer User
     err = connection.ReadJSON(&observer)
@@ -100,10 +102,10 @@ func Observe(w http.ResponseWriter, r *http.Request) {
     }
     fmt.Println("Observer connected: " + observer.ID)
 
-    ObserveRoom(w, r, connection, isConnectionClosed, observer.RoomID)
+    ObserveRoom(w, r, connection, observer.RoomID)
 }
 
-func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, isConnectionClosed chan bool, roomID string) {
+func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, roomID string) {
     var existingRoom Room
     rooms := GetRooms()
     err := rooms.Find(bson.M{"id": roomID}).One(&existingRoom)
@@ -112,7 +114,7 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
     //If there is no Read method active, the closeHandler is not triggered...
     go func() {
         for {
-            if IsConnectionClosed(isConnectionClosed) {
+            if connection.IsClosed() {
                 fmt.Println("Connection closed by the observer")
                 return
             }
@@ -124,7 +126,7 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
     maxOnline := 0
     for {
         someOnline := 0
-        if IsConnectionClosed(isConnectionClosed) {
+        if connection.IsClosed() {
             fmt.Println("Connection closed by the observer (in observe)")
             return
         }
@@ -187,7 +189,7 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
 
         err = connection.WriteJSON(roomInfo)
         if err != nil {
-            if IsConnectionClosed(isConnectionClosed) {
+            if connection.IsClosed() {
                 fmt.Println("Connection closed by the observer (in observe)")
                 return
             } else {
@@ -200,7 +202,7 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
     }
 }
 
-func ControlRoom(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, isConnectionClosed chan bool, roomID string, onPlay func(http.ResponseWriter, *http.Request, *websocket.Conn, chan bool, string)) {
+func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, roomID string, onPlay func(http.ResponseWriter, *http.Request, *WSConnection, string)) {
 	var oldRoom Room
 	var room Room
 	rooms := GetRooms()
@@ -214,7 +216,7 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
     }
 
 	for {
-        if IsConnectionClosed(isConnectionClosed) {
+        if connection.IsClosed() {
             fmt.Println("Connection closed by the observer")
             return
         }
@@ -249,7 +251,7 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
                 time.Sleep(1000 * time.Millisecond)
                 ChangeRoomState(room, Play)
 		    }()
-            onPlay(w, r, connection, isConnectionClosed, roomID)
+            onPlay(w, r, connection, roomID)
             break
 		}
 
@@ -268,7 +270,7 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
 
         err = connection.WriteJSON(roomInfo)
         if err != nil {
-            if IsConnectionClosed(isConnectionClosed) {
+            if connection.IsClosed() {
                 fmt.Println("Connection closed by the controling user (in control)")
                 return
             } else {
@@ -282,7 +284,7 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *websocket.C
 
 }
 
-func WaitForRoomStateUpdate(connection *websocket.Conn, roomStateChanged chan interface{}) {
+func WaitForRoomStateUpdate(connection *WSConnection, roomStateChanged chan interface{}) {
 	var room Room
 
 	for {
@@ -344,7 +346,8 @@ func GenerateRoomCode(codeLength int) string {
 }
 
 func Join(w http.ResponseWriter, r *http.Request) {
-	connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
+	//connection, isConnectionClosed, err := UpgradeConnToWebSocketConn(w, r)
+    connection, err := ToWSConnection(w, r, DefaultUpgrader)
 
 	var user User
 	err = connection.ReadJSON(&user)
@@ -385,10 +388,10 @@ func Join(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	PlayGame(w, r, connection, isConnectionClosed, existingRoom.ID)
+	PlayGame(w, r, connection, existingRoom.ID)
 }
 
-func JoinRoom(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, isConnectionClosed chan bool, roomID string) {
+func JoinRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, roomID string) {
 	rooms := GetRooms()
 
 	var existingRoom Room
@@ -407,10 +410,10 @@ func JoinRoom(w http.ResponseWriter, r *http.Request, connection *websocket.Conn
 		)
 	}
 
-	PlayGame(w, r, connection, isConnectionClosed, existingRoom.ID)
+	PlayGame(w, r, connection, existingRoom.ID)
 }
 
-func PlayGame(w http.ResponseWriter, r *http.Request, connection *websocket.Conn, isConnectionClosed chan bool, roomID string) {
+func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, roomID string) {
     //fmt.Println("playing...")
 	var player Player
 	player.Online = true
@@ -422,7 +425,7 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *websocket.Conn
 
 	previousRoomState := WaitingForPlayers
 	for {
-		if IsConnectionClosed(isConnectionClosed) {
+		if connection.IsClosed() {
 			fmt.Println("Player disconnected")
 			player.Online = false
 			SaveScore(&player)
@@ -450,7 +453,7 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *websocket.Conn
 		err := connection.ReadJSON(&player)
 
 		if err != nil {
-			if IsConnectionClosed(isConnectionClosed) {
+			if connection.IsClosed() {
 				fmt.Println("Player disconnected")
 				player.Online = false
 				SaveScore(&player)
