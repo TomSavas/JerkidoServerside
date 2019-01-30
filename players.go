@@ -7,13 +7,83 @@ import (
     "net/http"
     "strconv"
     "encoding/json"
+    "github.com/globalsign/mgo"
 )
 
 type Player struct {
     ID string `json:"id"`
-    Score uint32 `json:"score"`
-    TopScore uint32 `json:"topscore,omitempty"`
+    RoomID string `json:"roomid,omitempty"`
+    IsPlayer bool `json:"isplayer,omitempty"`
     Online bool `json:"online,omitempty"`
+    Score uint32 `json:"score,omitempty"`
+    TopScore uint32 `json:"topscore,omitempty"`
+}
+
+func NewPlayer(id string) *Player {
+    return &Player{id, "", true, true, 0, 0}
+}
+
+func GetPlayers() *mgo.Collection {
+    return GetCollection("Players")
+}
+
+func GetExistingPlayer(id string) (*Player, error) {
+    player := new(Player)
+    err := GetPlayers().Find(bson.M{"id":id}).One(player)
+
+    return player, err
+}
+
+// Returns a value representing whether the room was upated
+func (player *Player) UpdateWithStatusReport() (bool, error) {
+    oldPlayer := &Player{player.ID, player.RoomID, player.IsPlayer, player.Online, player.Score, player.TopScore}
+
+    err := player.Update()
+    if err != nil {
+        return false, err
+    }
+
+    return *player == *oldPlayer, nil
+}
+
+func (player *Player) Update() error {
+    return GetPlayers().Find(bson.M{"id": player.ID}).One(player)
+}
+
+func (player *Player) SaveScore() {
+    if player.TopScore < player.Score {
+        player.TopScore = player.Score
+    }
+
+    playerInDB, err := GetExistingPlayer(player.ID)
+    if err != nil {
+        err = GetPlayers().Insert(player)
+        if err != nil {
+            log.Println(err)
+            return
+        }
+        return
+    }
+
+    fieldsToUpdate := bson.M{}
+    fieldsToUpdate["online"] = player.Online
+    if playerInDB.Score != player.Score {
+        fieldsToUpdate["score"] = player.Score
+    }
+    if playerInDB.TopScore < player.Score {
+        fieldsToUpdate["topscore"] = player.Score
+    }
+
+    if len(fieldsToUpdate) != 0 {
+        err = GetPlayers().Update(
+            bson.M{"id":player.ID},
+            bson.M{"$set": fieldsToUpdate},
+        )
+        if err != nil {
+            log.Println(err)
+            return
+        }
+    }
 }
 
 func GetTopPlayers(w http.ResponseWriter, r *http.Request) {
@@ -61,95 +131,3 @@ func GetPosition(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(200)
 }
 
-//func SaveScore(w http.ResponseWriter, r *http.Request) {
-//    players := GetCollection("Players")
-//
-//    player, err := JsonToPlayer(r)
-//    if err != nil {
-//        log.Println(err)
-//        w.WriteHeader(400)
-//        return
-//    }
-//
-//    if player.TopScore < player.Score {
-//        player.TopScore = player.Score
-//    }
-//
-//    var existingPlayer Player
-//    err = players.Find(bson.M{"id":player.ID}).One(&existingPlayer)
-//    if err != nil {
-//        err = players.Insert(&player)
-//        if err != nil {
-//            log.Println(err)
-//            w.WriteHeader(500)
-//            return
-//        }
-//        w.WriteHeader(201)
-//        return
-//    }
-//
-//    fieldsToUpdate := bson.M{}
-//    if existingPlayer.Score != player.Score {
-//        fieldsToUpdate["score"] = player.Score
-//    }
-//    if existingPlayer.TopScore < player.Score {
-//        fieldsToUpdate["topscore"] = player.Score
-//    }
-//
-//    if len(fieldsToUpdate) != 0 {
-//        err = players.Update(
-//            bson.M{"id":player.ID},
-//            bson.M{"$set": fieldsToUpdate},
-//        )
-//        if err != nil {
-//            log.Println(err)
-//            w.WriteHeader(500)
-//            return
-//        }
-//
-//        w.WriteHeader(200)
-//    } else {
-//        w.WriteHeader(304)
-//    }
-//}
-
-func SaveScore(player *Player) {
-    players := GetCollection("Players")
-
-    if player.TopScore < player.Score {
-        player.TopScore = player.Score
-    }
-
-    var existingPlayer Player
-    err := players.Find(bson.M{"id":player.ID}).One(&existingPlayer)
-    if err != nil {
-        err = players.Insert(&player)
-        if err != nil {
-            log.Println(err)
-            return
-        }
-        return
-    }
-
-    fieldsToUpdate := bson.M{}
-    fieldsToUpdate["online"] = player.Online
-
-    if existingPlayer.Score != player.Score {
-        fieldsToUpdate["score"] = player.Score
-    }
-    if existingPlayer.TopScore < player.Score {
-        fieldsToUpdate["topscore"] = player.Score
-    }
-
-    if len(fieldsToUpdate) != 0 {
-        err = players.Update(
-            bson.M{"id":player.ID},
-            bson.M{"$set": fieldsToUpdate},
-        )
-        if err != nil {
-            log.Println(err)
-            return
-        }
-
-    }
-}

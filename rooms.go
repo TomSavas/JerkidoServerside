@@ -55,7 +55,7 @@ func NewRoom(ownerID string, creatorIsPlayer bool) *Room {
     return &Room{GenerateUniqueRoomCode(GetRooms()), WaitingForPlayers, players, observers, ownerID}
 }
 
-func GetRoom(roomID string) (*Room, error) {
+func GetExistingRoom(roomID string) (*Room, error) {
     room := new(Room)
     room.ID = roomID
     return room, room.Update()
@@ -63,6 +63,7 @@ func GetRoom(roomID string) (*Room, error) {
 
 // Returns a value representing whether the room was upated
 func (room *Room) UpdateWithStatusReport() (bool, error) {
+    //Bug - coppies slice pointers
     oldRoom := &Room{room.ID, room.State, room.PlayerIDs, room.ObserverIDs, room.OwnerID}
 
     err := room.Update()
@@ -128,6 +129,24 @@ func (room *Room) Equals(otherRoom *Room) bool {
     }
 }
 
+func (room *Room) PlayersInRoom() ([]Player, []error) {
+    var players []Player
+    var errors  []error
+
+    for i := 0; i < len(room.PlayerIDs); i++ {
+        player, err := GetExistingPlayer(room.PlayerIDs[i])
+        if err != nil {
+            fmt.Println("Error while looking for players in room. ")
+            fmt.Println(err)
+            errors = append(errors, err)
+            continue
+        }
+        players = append(players, *player)
+    }
+
+    return players, errors
+}
+
 func GetRooms() *mgo.Collection {
     return GetCollection("Rooms")
 }
@@ -144,7 +163,8 @@ func CreateRoom(w http.ResponseWriter, r *http.Request) {
     }
 
     //Overides highscore
-    SaveScore(&Player{owner.ID, 0, 0, true})
+    //SaveScore(&Player{owner.ID, 0, 0, true})
+    NewPlayer(owner.ID).SaveScore()
     room := NewRoom(owner.ID, owner.IsPlayer)
     fmt.Println("Created a new room: " + room.ID + " owner: " + room.OwnerID)
 
@@ -156,7 +176,7 @@ func CreateRoom(w http.ResponseWriter, r *http.Request) {
     connection.WriteMessage(websocket.TextMessage, []byte("{\"id\":\""+room.ID+"\"}"))
 
     if owner.IsPlayer {
-        ControlRoom(w, r, connection, room, JoinRoom)
+        ControlRoom(w, r, connection, room, PlayGame)
     } else {
         ControlRoom(w, r, connection, room, ObserveRoom)
     }
@@ -174,7 +194,7 @@ func Observe(w http.ResponseWriter, r *http.Request) {
         return
     }
     fmt.Println("Observer connected: " + observer.ID)
-    room, err := GetRoom(observer.RoomID)
+    room, err := GetExistingRoom(observer.RoomID)
 
     if err != nil {
         fmt.Printf("Room doesnt exist: %+v: ", observer)
@@ -306,6 +326,8 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
 			if err != nil {
 				fmt.Println("Error while parsing room to RoomInfo")
 				fmt.Println(err)
+                fmt.Printf("%+v\n", *room)
+                fmt.Printf("%+v", *roomInfo)
 				return
 			}
 		}
@@ -411,7 +433,7 @@ func Join(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Println("looking for a room")
-    room, err := GetRoom(user.RoomID)
+    room, err := GetExistingRoom(user.RoomID)
 
 	if err != nil {
 		fmt.Println("Failed geting room with id: " + user.RoomID)
@@ -420,8 +442,8 @@ func Join(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !Exists(room.PlayerIDs, user.ID) {
-		SaveScore(&Player{user.ID, 0, 0, true}) //Don't leave this. It will override an existing player's top score.
 
+		NewPlayer(user.ID).SaveScore() //Don't leave this. It will override an existing player's top score.
 		changedPlayerIDs := append(room.PlayerIDs, user.ID)
 		err = GetRooms().Update(
 			bson.M{"id": room.ID},
@@ -432,25 +454,6 @@ func Join(w http.ResponseWriter, r *http.Request) {
 			fmt.Println(err)
 		}
 	}
-
-	PlayGame(w, r, connection, room)
-}
-
-func JoinRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room) {
-    //err := rooms.Find(bson.M{"id": roomID}).One(&existingRoom)
-
-	//if err != nil {
-	//	fmt.Println(err)
-	//	return
-	//}
-
-	//if !Exists(existingRoom.PlayerIDs, existingRoom.OwnerID) {
-	//	changedPlayerIDs := append(existingRoom.PlayerIDs, existingRoom.OwnerID)
-	//	rooms.Update(
-	//		bson.M{"id": existingRoom.ID},
-	//		bson.M{"$set": bson.M{"playerids": changedPlayerIDs}},
-	//	)
-	//}
 
 	PlayGame(w, r, connection, room)
 }
@@ -471,7 +474,7 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
 		if connection.IsClosed() {
 			fmt.Println("Player disconnected")
 			player.Online = false
-			SaveScore(&player)
+            (&player).SaveScore()
 			return
 		}
 
@@ -499,14 +502,14 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
 			if connection.IsClosed() {
 				fmt.Println("Player disconnected")
 				player.Online = false
-				SaveScore(&player)
+                (&player).SaveScore()
 				break
 			} else {
 				fmt.Print("Error reading message: ")
 				fmt.Println(err)
 			}
 		} else {
-			SaveScore(&player)
+            (&player).SaveScore()
 		}
 
         // for debugging purposes
