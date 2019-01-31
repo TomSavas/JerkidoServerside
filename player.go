@@ -13,14 +13,14 @@ import (
 type Player struct {
     ID string `json:"id"`
     RoomID string `json:"roomid,omitempty"`
-    IsPlayer bool `json:"isplayer,omitempty"`
-    Online bool `json:"online,omitempty"`
     Score uint32 `json:"score,omitempty"`
     TopScore uint32 `json:"topscore,omitempty"`
+    IsPlayer bool `json:"isplayer,omitempty"`
+    Online bool `json:"online,omitempty"`
 }
 
 func NewPlayer(id string) *Player {
-    return &Player{id, "", true, true, 0, 0}
+    return &Player{id, "", 0, 0, true, true}
 }
 
 func GetPlayers() *mgo.Collection {
@@ -36,7 +36,7 @@ func GetExistingPlayer(id string) (*Player, error) {
 
 // Returns a value representing whether the room was upated
 func (player *Player) UpdateWithStatusReport() (bool, error) {
-    oldPlayer := &Player{player.ID, player.RoomID, player.IsPlayer, player.Online, player.Score, player.TopScore}
+    oldPlayer := &Player{player.ID, player.RoomID, player.Score, player.TopScore, player.IsPlayer, player.Online}
 
     err := player.Update()
     if err != nil {
