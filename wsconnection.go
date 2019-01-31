@@ -11,7 +11,7 @@ type WSConnection struct {
     isConnectionClosed chan bool
 }
 
-func ToWSConnection(writer http.ResponseWriter, request *http.Request, upgrader *websocket.Upgrader) (*WSConnection, error) {
+func ToWSConnection(writer http.ResponseWriter, request *http.Request, upgrader *websocket.Upgrader) *WSConnection {
     if upgrader == nil {
         upgrader = &websocket.Upgrader{}
 
@@ -21,14 +21,12 @@ func ToWSConnection(writer http.ResponseWriter, request *http.Request, upgrader 
     }
 
     conn, err := upgrader.Upgrade(writer, request, nil)
-    if err != nil {
-        return nil, err
-    }
+    Fatal(err, "Failed to upgrade HTTP connection to a WS connection")
 
     connection := &WSConnection{conn, make(chan bool, 1)}
     connection.setDefaultCloseHandler()
 
-    return connection, nil
+    return connection
 }
 
 func (conn *WSConnection) IsClosed() bool {
