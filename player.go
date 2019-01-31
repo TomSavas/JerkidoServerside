@@ -51,39 +51,19 @@ func (player *Player) Update() error {
 }
 
 func (player *Player) SaveScore() {
+    playerInDB, err := GetExistingPlayer(player.ID)
+    Log(err, "Player doesn't exsist. Creating New.")
+
     if player.TopScore < player.Score {
         player.TopScore = player.Score
     }
 
-    playerInDB, err := GetExistingPlayer(player.ID)
-    if err != nil {
-        err = GetPlayers().Insert(player)
-        if err != nil {
-            log.Println(err)
-            return
-        }
-        return
+    if player.TopScore < playerInDB.TopScore {
+        player.TopScore = playerInDB.TopScore
     }
 
-    fieldsToUpdate := bson.M{}
-    fieldsToUpdate["online"] = player.Online
-    if playerInDB.Score != player.Score {
-        fieldsToUpdate["score"] = player.Score
-    }
-    if playerInDB.TopScore < player.Score {
-        fieldsToUpdate["topscore"] = player.Score
-    }
-
-    if len(fieldsToUpdate) != 0 {
-        err = GetPlayers().Update(
-            bson.M{"id":player.ID},
-            bson.M{"$set": fieldsToUpdate},
-        )
-        if err != nil {
-            log.Println(err)
-            return
-        }
-    }
+    _, err = GetPlayers().Upsert(bson.M{"id": player.ID}, bson.M{"$set": player})
+    Fatal(err, "Failed saving player's score")
 }
 
 func GetTopPlayers(w http.ResponseWriter, r *http.Request) {
