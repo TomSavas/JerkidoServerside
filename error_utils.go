@@ -19,7 +19,7 @@ func HandleWithTrace(err error, msg string, handler func(error)) {
 
 func Log(err error, msg string) {
     if err != nil {
-        log.Printf(errors.WithMessage(err, msg))
+        log.Printf("%+v", errors.WithMessage(err, msg))
     }
 }
 
