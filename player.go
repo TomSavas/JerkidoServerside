@@ -52,7 +52,7 @@ func (player *Player) Update() error {
 
 func (player *Player) SaveScore() {
     playerInDB, err := GetExistingPlayer(player.ID)
-    Log(err, "Player doesn't exsist. Creating New.")
+    Log(err, "PlayerDB", "Player " + player.ID + " doesn't exist. Creating New.")
 
     if player.TopScore < player.Score {
         player.TopScore = player.Score

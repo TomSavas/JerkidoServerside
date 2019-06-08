@@ -1,7 +1,6 @@
 package main
 
 import (
-    "log"
     "github.com/pkg/errors"
 )
 
@@ -17,15 +16,15 @@ func HandleWithTrace(err error, msg string, handler func(error)) {
     }
 }
 
-func Log(err error, msg string) {
+func Log(err error, tag string, msg string) {
     if err != nil {
-        log.Printf("%+v", errors.WithMessage(err, msg))
+        LogInfo(tag, msg + " Error: " + err.Error())
     }
 }
 
-func LogWithTrace(err error, msg string) {
+func LogWithTrace(err error, tag string, msg string) {
     if err != nil {
-        log.Printf("%+v", errors.Wrap(err, msg))
+        LogInfo(tag, msg + " Error: " + err.Error())
     }
 }
 

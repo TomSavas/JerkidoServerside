@@ -1,7 +1,6 @@
 package main
 
 import (
-    "fmt"
     "net/http"
     "time"
 )
@@ -20,26 +19,27 @@ func CreateRoom(w http.ResponseWriter, r *http.Request) {
 
     owner.SaveScore()
     room := NewRoom(owner.ID, owner.IsPlayer)
-    //fmt.Println("Created a new room: " + room.ID + " owner: " + room.OwnerID)
+    LogInfo("Room", "Created a new room: " + room.ID + ", owner: " + room.OwnerID + ".")
     room.Write()
 
     roomInfo := room.Info()
     connection.WriteJSON(roomInfo)
 
     if owner.IsPlayer {
-        ControlRoom(w, r, connection, room, PlayGame)
+        ControlRoom(w, r, connection, room, owner, PlayGame)
     } else {
-        ControlRoom(w, r, connection, room, ObserveRoom)
+        ControlRoom(w, r, connection, room, owner, ObserveRoom)
     }
 }
 
-func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room, onPlay func(http.ResponseWriter, *http.Request, *WSConnection, *Room)) {
+func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room, player *Player, onPlay func(http.ResponseWriter, *http.Request, *WSConnection, *Room, *Player)) {
     roomStateChanged := make(chan interface{}, 1)
     go WaitForRoomStateUpdate(connection, roomStateChanged)
 
 	for {
         if connection.IsClosed() {
-            fmt.Println("Connection closed by the observer")
+            LogInfo("Room " + room.ID, "Connection closed by the room owner: " + room.OwnerID + ".")
+
             return
         }
 
@@ -61,12 +61,11 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
                 time.Sleep(1000 * time.Millisecond)
                 room.ChangeRoomState(Play)
 		    }()
-            onPlay(w, r, connection, room)
+            onPlay(w, r, connection, room, player)
             break
 		}
 
         if roomUpdated {
-            ClearTerminal()
             err := connection.WriteJSON(*roomInfo)
             Log(err, "Failed writing room to the controlling user")
         }
@@ -85,7 +84,7 @@ func WaitForRoomStateUpdate(connection *WSConnection, roomStateChanged chan inte
         }
 
 		err := connection.ReadJSON(&room)
-        Log(err, "Failed to read room update")
+        Log(err, "Room " + room.ID, "Failed to read room state change from the owner.")
 
 		if room.State != WaitingForPlayers {
 			roomStateChanged <- true
@@ -107,7 +106,7 @@ func Join(w http.ResponseWriter, r *http.Request) {
         room.Write()
 	}
 
-	PlayGame(w, r, connection, room)
+	PlayGame(w, r, connection, room, player)
 }
 
 func Observe(w http.ResponseWriter, r *http.Request) {
@@ -116,25 +115,28 @@ func Observe(w http.ResponseWriter, r *http.Request) {
     observer := ReadConnectingUser(connection)
     room := GetExistingRoom(observer.RoomID)
 
-    ObserveRoom(w, r, connection, room)
+    ObserveRoom(w, r, connection, room, observer)
 }
 
-func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room) {
+func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room, player *Player) {
     // If there is no Read method active, the closeHandler is not triggered...
     // This doesn't seem like the desired behaviour. Investigate.
     go func() {
         for {
-            if connection.IsClosed() {
-                fmt.Println("Connection closed by the observer")
+            _, _, err := connection.ReadMessage()
+
+            if connection.IsClosed() || err != nil {
+                LogInfo("Room " + room.ID, "Observer disconnected: " + player.ID + ".")
+
                 return
             }
-            _, _, _ = connection.ReadMessage()
         }
     }()
 
     for {
         if connection.IsClosed() {
-            fmt.Println("Connection closed by the observer (in observe)")
+            LogInfo("Room " + room.ID, "Observer disconnected: " + player.ID + ".")
+
             return
         }
 
@@ -148,8 +150,7 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
     }
 }
 
-func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room) {
-	var player Player
+func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room, player *Player) {
 	player.Online = true
 
     roomInfo := room.Info()
@@ -158,9 +159,10 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
 	previousRoomState := WaitingForPlayers
 	for {
 		if connection.IsClosed() {
-			fmt.Println("Player disconnected")
+            LogInfo("Room " + room.ID, "Player disconnected: " + player.ID)
+
 			player.Online = false
-            (&player).SaveScore()
+            player.SaveScore()
 			return
 		}
 
@@ -169,6 +171,7 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
 		if room.State != previousRoomState {
 			previousRoomState = room.State
             _ = connection.WriteJSON(room.Info())
+
 			if room.State == Play {
 				break
 			}
@@ -179,14 +182,15 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
 
 	for {
         if connection.IsClosed() {
-            fmt.Println("Player disconnected")
+            LogInfo("Room " + room.ID, "Player disconnected: " + player.ID)
+
             player.Online = false
-            (&player).SaveScore()
+            player.SaveScore()
             break
         }
 
 		err := connection.ReadJSON(&player)
-        Log(err, "Failed to read the player")
-        (&player).SaveScore()
+        Log(err, "Room " + room.ID, "Failed reading player score: " + player.ID)
+        player.SaveScore()
 	}
 }

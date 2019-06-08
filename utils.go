@@ -7,6 +7,8 @@ import (
     //"github.com/gorilla/websocket"
     "os"
     "os/exec"
+    "fmt"
+    "time"
 )
 
 func Exists(items []string, item string) bool {
@@ -67,4 +69,8 @@ func ClearTerminal() {
     c := exec.Command("clear")
     c.Stdout = os.Stdout
     c.Run()
+}
+
+func LogInfo(tag string, msg string) {
+    fmt.Printf("[%s] <%s>: %s\n", time.Now().UTC().String(), tag, msg)
 }
