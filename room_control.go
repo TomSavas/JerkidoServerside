@@ -50,7 +50,7 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
 		if hasValue, _ := ChannelHasValue(roomStateChanged); hasValue {
             go func() {
                 room.ChangeRoomState(Transition)
-                time.Sleep(1000 * time.Millisecond)
+                time.Sleep(200 * time.Millisecond)
                 room.ChangeRoomState(CountingDown_3)
                 time.Sleep(1000 * time.Millisecond)
                 room.ChangeRoomState(CountingDown_2)
@@ -60,14 +60,28 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
                 room.ChangeRoomState(CountingDown_0)
                 time.Sleep(1000 * time.Millisecond)
                 room.ChangeRoomState(Play)
+                time.Sleep(30000 * time.Millisecond)
+                room.ChangeRoomState(End)
 		    }()
             onPlay(w, r, connection, room, player)
             break
 		}
 
+        writingFailureCount := 0
         if roomUpdated {
             err := connection.WriteJSON(*roomInfo)
-            Log(err, "Failed writing room to the controlling user")
+
+            if err != nil {
+                writingFailureCount++
+            }
+
+            Log(err, "Room " + room.ID, "Failed sending room state to the owner: " + room.OwnerID)
+        }
+
+        if writingFailureCount > 10 {
+            LogInfo("Room " + room.ID, "Failed sending room state to the owner: " + room.OwnerID + " 10 times. Removing the owner.")
+            connection.Close();
+            return
         }
 
 		time.Sleep(100 * time.Millisecond)
@@ -133,6 +147,7 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
         }
     }()
 
+    writingFailureCount := 0
     for {
         if connection.IsClosed() {
             LogInfo("Room " + room.ID, "Observer disconnected: " + player.ID + ".")
@@ -144,7 +159,18 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
         roomInfo := room.Info()
 
         err := connection.WriteJSON(*roomInfo)
-        Log(err, "Cannot write room info to the observer")
+        if err != nil {
+            writingFailureCount++
+        }
+
+        if writingFailureCount > 10 {
+            Log(err, "Room " + room.ID, "Failed sending player score: " + player.ID + " 10 times. Removing the player.")
+
+            connection.Close();
+            return
+        } else {
+            Log(err, "Room " + room.ID, "Failed sending player score: " + player.ID)
+        }
 
         time.Sleep(100 * time.Millisecond)
     }
