@@ -35,6 +35,7 @@ type RoomInfo struct {
     ID      string    `json:"id"`
     State   RoomState `json:"state"`
     Players []Player  `json:"players"`
+    OwnerID string    `json:"ownerid"`
 }
 
 func NewRoom(ownerID string, creatorIsPlayer bool) *Room {
@@ -138,7 +139,7 @@ func (room *Room) Info() *RoomInfo {
     players, err := room.PlayersInRoom()
     Fatal(err, "Failed forming room info")
 
-    return &RoomInfo{room.ID, room.State, players}
+    return &RoomInfo{room.ID, room.State, players, room.OwnerID}
 }
 
 func (room *Room) Equals(otherRoom *Room) bool {
