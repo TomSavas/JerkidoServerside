@@ -65,6 +65,15 @@ func ChannelHasValue(channel chan interface{}) (bool, interface{}) {
     }
 }
 
+func ChannelHasValueWithTimeout(channel chan interface{}, timeoutInSeconds int) (bool, interface{}) {
+    select {
+        case value, _ := <- channel:
+            return true, value
+        case <- time.After(time.Duration(timeoutInSeconds) * time.Second):
+            return false, nil
+    }
+}
+
 func ClearTerminal() {
     c := exec.Command("clear")
     c.Stdout = os.Stdout
