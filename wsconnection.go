@@ -3,6 +3,7 @@ package main
 import (
     "net/http"
     "github.com/gorilla/websocket"
+    "time"
 )
 
 type WSConnection struct {
@@ -31,7 +32,7 @@ func ToWSConnection(writer http.ResponseWriter, request *http.Request, upgrader 
 
 func (conn *WSConnection) IsClosed() bool {
     select {
-        case value, _ := <-conn.isConnectionClosed:
+        case value, _ := <- conn.isConnectionClosed:
             // The value was read (thus popped of) from isConnectionClosed channel if anyone else
             // tries to read the channel, the value will not be there. This writes the value that
             // has been read from the channel back to itself again.
@@ -60,6 +61,10 @@ func (conn *WSConnection) SetCloseHandler(handler func(int, string) error) {
 
 func (conn *WSConnection) Close() error {
     conn.isConnectionClosed <- true
+
+    // Send ws close control message
+    conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Millisecond))
+    time.Sleep(10 * time.Millisecond)
 
     return conn.Conn.Close()
 }
