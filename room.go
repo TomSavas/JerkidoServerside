@@ -126,8 +126,8 @@ func (room *Room) Read() {
 }
 
 func (room *Room) ChangeRoomState(state RoomState) {
-    room.State = state
-    room.Write()
+    _, err := GetRooms().Upsert(bson.M{"id": room.ID}, bson.M{"$set": bson.M{"state" : state}})
+    Fatal(err, "Failed to update room state")
 }
 
 func (room *Room) Write() *mgo.ChangeInfo {
