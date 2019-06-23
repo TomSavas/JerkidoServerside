@@ -3,6 +3,7 @@ package main
 import (
     "net/http"
     "time"
+    "fmt"
 )
 
 func ReadConnectingUser(connection *WSConnection) *Player {
@@ -18,8 +19,12 @@ func CreateRoom(w http.ResponseWriter, r *http.Request) {
     owner := ReadConnectingUser(connection)
 
     owner.SaveScore()
-    room := NewRoom(owner.ID, owner.IsPlayer)
-    LogInfo("Room", "Created a new room: " + room.ID + ", owner: " + room.OwnerID + ".")
+    room := NewRoom(owner.ID, owner.IsPlayer, 5)
+    if owner.IsPlayer {
+        LogInfo("Room", "Created a new room: " + room.ID + ", owner: " + room.OwnerID + ". Owner is also a player.")
+    } else {
+        LogInfo("Room", "Created a new room: " + room.ID + ", owner: " + room.OwnerID + ".")
+    }
     room.Write()
 
     roomInfo := room.Info()
@@ -34,6 +39,8 @@ func CreateRoom(w http.ResponseWriter, r *http.Request) {
 
 func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room, player *Player, onPlay func(http.ResponseWriter, *http.Request, *WSConnection, *Room, *Player)) {
     roomStateChanged := make(chan interface{}, 1)
+    writingFailureCount := 0
+
     go WaitForRoomStateUpdate(connection, roomStateChanged)
 
 	for {
@@ -47,27 +54,32 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
 
 		roomInfo := room.Info()
 
-		if hasValue, _ := ChannelHasValue(roomStateChanged); hasValue {
+		if hasValue, _ := ChannelHasValueWithTimeout(roomStateChanged, 3600); hasValue {
             go func() {
                 room.ChangeRoomState(Transition)
                 time.Sleep(200 * time.Millisecond)
                 room.ChangeRoomState(CountingDown_3)
-                time.Sleep(1000 * time.Millisecond)
+                time.Sleep(time.Second)
                 room.ChangeRoomState(CountingDown_2)
-                time.Sleep(1000 * time.Millisecond)
+                time.Sleep(time.Second)
                 room.ChangeRoomState(CountingDown_1)
-                time.Sleep(1000 * time.Millisecond)
+                time.Sleep(time.Second)
                 room.ChangeRoomState(CountingDown_0)
-                time.Sleep(1000 * time.Millisecond)
+                time.Sleep(time.Second)
                 room.ChangeRoomState(Play)
-                time.Sleep(30000 * time.Millisecond)
+                time.Sleep(time.Duration(room.PlayTimeInSeconds * 1000) * time.Millisecond)
                 room.ChangeRoomState(End)
 		    }()
             onPlay(w, r, connection, room, player)
-            break
-		}
 
-        writingFailureCount := 0
+            go WaitForRoomStateUpdate(connection, roomStateChanged)
+		} else {
+            LogInfo("Room " + room.ID, "ControlRoom timed out for owner: " + room.OwnerID + ". Removing the owner.")
+
+            connection.Close();
+            return
+        }
+
         if roomUpdated {
             err := connection.WriteJSON(*roomInfo)
 
@@ -79,28 +91,30 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
         }
 
         if writingFailureCount > 10 {
-            LogInfo("Room " + room.ID, "Failed sending room state to the owner: " + room.OwnerID + " 10 times. Removing the owner.")
+            LogInfo("Room " + room.ID, "Failed sending room state to owner: " + room.OwnerID + " 10 times. Remove the owner.")
+
             connection.Close();
             return
         }
-
-		time.Sleep(100 * time.Millisecond)
-	}
-
+    }
 }
 
 func WaitForRoomStateUpdate(connection *WSConnection, roomStateChanged chan interface{}) {
 	var room Room
+    writingFailureCount := 0
 
 	for {
-        if connection.IsClosed() {
+        if connection.IsClosed() || writingFailureCount > 10 {
             return
         }
 
 		err := connection.ReadJSON(&room)
-        Log(err, "Room " + room.ID, "Failed to read room state change from the owner.")
+        if err != nil {
+            Log(err, "Room " + room.ID + "(WaitingForRoomStateUpdate)", "Failed to read room state change from the owner.")
+            writingFailureCount++
+        }
 
-		if room.State != WaitingForPlayers {
+		if room.State == Play {
 			roomStateChanged <- true
 			break
 		}
@@ -120,7 +134,9 @@ func Join(w http.ResponseWriter, r *http.Request) {
         room.Write()
 	}
 
-	PlayGame(w, r, connection, room, player)
+    for !connection.IsClosed() {
+        PlayGame(w, r, connection, room, player)
+    }
 }
 
 func Observe(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +145,9 @@ func Observe(w http.ResponseWriter, r *http.Request) {
     observer := ReadConnectingUser(connection)
     room := GetExistingRoom(observer.RoomID)
 
-    ObserveRoom(w, r, connection, room, observer)
+    for !connection.IsClosed() {
+        ObserveRoom(w, r, connection, room, observer)
+    }
 }
 
 func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room, player *Player) {
@@ -148,32 +166,30 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
     }()
 
     writingFailureCount := 0
-    for {
-        if connection.IsClosed() {
-            LogInfo("Room " + room.ID, "Observer disconnected: " + player.ID + ".")
+    if connection.IsClosed() {
+        LogInfo("Room " + room.ID, "Observer disconnected: " + player.ID + ".")
 
-            return
-        }
-
-        room.Read()
-        roomInfo := room.Info()
-
-        err := connection.WriteJSON(*roomInfo)
-        if err != nil {
-            writingFailureCount++
-        }
-
-        if writingFailureCount > 10 {
-            Log(err, "Room " + room.ID, "Failed sending player score: " + player.ID + " 10 times. Removing the player.")
-
-            connection.Close();
-            return
-        } else {
-            Log(err, "Room " + room.ID, "Failed sending player score: " + player.ID)
-        }
-
-        time.Sleep(100 * time.Millisecond)
+        return
     }
+
+    room.Read()
+    roomInfo := room.Info()
+
+    err := connection.WriteJSON(*roomInfo)
+    if err != nil {
+        writingFailureCount++
+    }
+
+    if writingFailureCount > 10 {
+        Log(err, "Room " + room.ID, "Failed sending player score: " + player.ID + " 10 times. Removing the player.")
+
+        connection.Close();
+        return
+    } else {
+        Log(err, "Room " + room.ID, "Failed sending player score: " + player.ID)
+    }
+
+    time.Sleep(100 * time.Millisecond)
 }
 
 func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room, player *Player) {
@@ -182,31 +198,32 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
     roomInfo := room.Info()
 	connection.WriteJSON(*roomInfo)
 
-	previousRoomState := WaitingForPlayers
-	for {
-		if connection.IsClosed() {
+    previousRoomState := room.State
+
+    for {
+        if connection.IsClosed() {
             LogInfo("Room " + room.ID, "Player disconnected: " + player.ID)
 
-			player.Online = false
+            player.Online = false
             player.SaveScore()
-			return
-		}
+            return
+        }
 
         room.Read()
 
-		if room.State != previousRoomState {
-			previousRoomState = room.State
+        if room.State != previousRoomState {
+            previousRoomState = room.State
             _ = connection.WriteJSON(room.Info())
 
-			if room.State == Play {
-				break
-			}
-		}
+            if room.State == Play {
+                break
+            }
+        }
 
-		time.Sleep(100 * time.Millisecond)
-	}
+        time.Sleep(100 * time.Millisecond)
+    }
 
-	for {
+    for {
         if connection.IsClosed() {
             LogInfo("Room " + room.ID, "Player disconnected: " + player.ID)
 
@@ -215,8 +232,17 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
             break
         }
 
-		err := connection.ReadJSON(&player)
+        err := connection.ReadJSON(&player)
         Log(err, "Room " + room.ID, "Failed reading player score: " + player.ID)
         player.SaveScore()
-	}
+
+        room.Read()
+
+        if room.State == End {
+            LogInfo("DEBUG", "Writing room info to: " + player.ID + ". Room info: " + fmt.Sprintf("%+v", room.Info()) + "\n")
+            connection.WriteJSON(*room.Info())
+
+            break
+        }
+    }
 }

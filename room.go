@@ -23,22 +23,24 @@ const (
 )
 
 type Room struct {
-    ID           string    `json:"id"`
-    State        RoomState `json:"state"`
-    PlayerIDs    []string  `json:"playerids"`
-    ObserverIDs  []string  `json:"observerids"`
-    OwnerID      string    `json:"ownerid"`
-    CreationTime string    `json:"creationtime"`
+    ID                string    `json:"id"`
+    State             RoomState `json:"state"`
+    PlayerIDs         []string  `json:"playerids"`
+    ObserverIDs       []string  `json:"observerids"`
+    OwnerID           string    `json:"ownerid"`
+    CreationTime      string    `json:"creationtime"`
+    PlayTimeInSeconds int       `json:"playtimeinseconds"`
 }
 
 type RoomInfo struct {
-    ID      string    `json:"id"`
-    State   RoomState `json:"state"`
-    Players []Player  `json:"players"`
-    OwnerID string    `json:"ownerid"`
+    ID                string    `json:"id"`
+    State             RoomState `json:"state"`
+    Players           []Player  `json:"players"`
+    OwnerID           string    `json:"ownerid"`
+    PlayTimeInSeconds int       `json:"playtimeinseconds"`
 }
 
-func NewRoom(ownerID string, creatorIsPlayer bool) *Room {
+func NewRoom(ownerID string, creatorIsPlayer bool, playTimeInSeconds int) *Room {
     var players []string
     var observers []string
 
@@ -48,7 +50,7 @@ func NewRoom(ownerID string, creatorIsPlayer bool) *Room {
         observers = []string{ownerID}
     }
 
-    return &Room{GenerateUniqueRoomCode(GetRooms()), WaitingForPlayers, players, observers, ownerID, time.Now().UTC().String()}
+    return &Room{GenerateUniqueRoomCode(GetRooms()), WaitingForPlayers, players, observers, ownerID, time.Now().UTC().String(), playTimeInSeconds}
 }
 
 func GetExistingRoom(roomID string) *Room {
@@ -112,7 +114,7 @@ func RemoveEmptyRooms() {
 // Returns a value representing whether the room was upated
 func (room *Room) ReadWithStatusReport() bool {
     //Bug - copies slice pointers
-    oldRoom := &Room{room.ID, room.State, room.PlayerIDs, room.ObserverIDs, room.OwnerID, room.CreationTime}
+    oldRoom := &Room{room.ID, room.State, room.PlayerIDs, room.ObserverIDs, room.OwnerID, room.CreationTime, room.PlayTimeInSeconds}
     room.Read()
 
     return !room.Equals(oldRoom)
@@ -139,11 +141,16 @@ func (room *Room) Info() *RoomInfo {
     players, err := room.PlayersInRoom()
     Fatal(err, "Failed forming room info")
 
-    return &RoomInfo{room.ID, room.State, players, room.OwnerID}
+    return &RoomInfo{room.ID, room.State, players, room.OwnerID, room.PlayTimeInSeconds}
 }
 
 func (room *Room) Equals(otherRoom *Room) bool {
-    if room.ID == otherRoom.ID && room.State == otherRoom.State && room.OwnerID == otherRoom.OwnerID && len(room.PlayerIDs) == len(otherRoom.PlayerIDs) && len(room.ObserverIDs) == len(otherRoom.ObserverIDs) {
+    if room.ID == otherRoom.ID &&
+       room.State == otherRoom.State && 
+       room.OwnerID == otherRoom.OwnerID && 
+       len(room.PlayerIDs) == len(otherRoom.PlayerIDs) && 
+       len(room.ObserverIDs) == len(otherRoom.ObserverIDs) &&
+       room.PlayTimeInSeconds == otherRoom.PlayTimeInSeconds {
         equals := func(firstList []string, secondList []string) bool {
             sort.Strings(firstList)
             sort.Strings(secondList)
