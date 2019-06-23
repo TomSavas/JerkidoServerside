@@ -132,6 +132,8 @@ func Join(w http.ResponseWriter, r *http.Request) {
 		player.SaveScore()
 		room.PlayerIDs = append(room.PlayerIDs, player.ID)
         room.Write()
+
+        LogInfo("Room " + player.RoomID, "Adding player: " + player.ID + " to the room. Player list: " + fmt.Sprintf("%+v", room.PlayerIDs))
 	}
 
     for !connection.IsClosed() {
