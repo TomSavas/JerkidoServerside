@@ -27,8 +27,7 @@ func CreateRoom(w http.ResponseWriter, r *http.Request) {
     }
     room.Write()
 
-    roomInfo := room.Info()
-    connection.WriteJSON(roomInfo)
+    connection.WriteJSON(*room.Info())
 
     if owner.IsPlayer {
         ControlRoom(w, r, connection, room, owner, PlayGame)
@@ -49,11 +48,22 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
             return
         }
 
+        // Send updates about the room until the game is started
+        startedGame := false
+        go func() {
+            for !startedGame && !connection.IsClosed() {
+                ObserveRoom(w, r, connection, room, player)
+            }
+        }()
+
 		if hasValue, _ := ChannelHasValueWithTimeout(playRequested, 3600); hasValue {
             // Ensure that the state is changed into Transition before launching onPlay
             room.ChangeRoomState(Transition)
+            // Flag game as started to stop ObserveRoom
+            startedGame = true
+
             go func() {
-                time.Sleep(1200 * time.Millisecond)
+                time.Sleep(800 * time.Millisecond)
                 room.ChangeRoomState(CountingDown_3)
                 time.Sleep(time.Second)
                 room.ChangeRoomState(CountingDown_2)
@@ -65,6 +75,8 @@ func ControlRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
                 room.ChangeRoomState(Play)
                 time.Sleep(time.Duration(room.PlayTimeInSeconds * 1000) * time.Millisecond)
                 room.ChangeRoomState(End)
+                time.Sleep(200 * time.Millisecond)
+                room.ChangeRoomState(WaitingForPlayers)
 		    }()
             onPlay(w, r, connection, room, player)
 
@@ -140,9 +152,8 @@ func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnectio
     }
 
     room.Read()
-    roomInfo := room.Info()
 
-    err := connection.WriteJSON(*roomInfo)
+    err := connection.WriteJSON(*room.Info())
     if err != nil {
         writingFailureCount++
     }
@@ -163,9 +174,7 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
 	player.Online = true
 
     room.Read()
-    roomInfo := room.Info()
-    previousRoomState := room.State
-	connection.WriteJSON(*roomInfo)
+	connection.WriteJSON(*room.Info())
 
     for {
         if connection.IsClosed() {
@@ -177,16 +186,14 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
         }
 
         room.Read()
-        if room.State != previousRoomState {
-            previousRoomState = room.State
-            _ = connection.WriteJSON(room.Info())
+        err := connection.WriteJSON(room.Info())
+        Log(err, "Room " + room.ID, "Failed sending room info before play state to player: " + player.ID)
 
-            if room.State == Play {
-                break
-            }
+        if room.State == Play {
+            break
         }
 
-        time.Sleep(100 * time.Millisecond)
+        time.Sleep(200 * time.Millisecond)
     }
 
     for {
@@ -202,8 +209,8 @@ func PlayGame(w http.ResponseWriter, r *http.Request, connection *WSConnection, 
         Log(err, "Room " + room.ID, "Failed reading player score: " + player.ID)
         player.SaveScore()
 
-        room.Read()
 
+        room.Read()
         if room.State == End {
             connection.WriteJSON(*room.Info())
 
