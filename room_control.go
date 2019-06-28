@@ -132,20 +132,6 @@ func Observe(w http.ResponseWriter, r *http.Request) {
 }
 
 func ObserveRoom(w http.ResponseWriter, r *http.Request, connection *WSConnection, room *Room, player *Player) {
-    // If there is no Read method active, the closeHandler is not triggered...
-    // This doesn't seem like the desired behaviour. Investigate.
-    go func() {
-        for {
-            _, _, err := connection.ReadMessage()
-
-            if connection.IsClosed() || err != nil {
-                LogInfo("Room " + room.ID, "Observer disconnected: " + player.ID + ".")
-
-                return
-            }
-        }
-    }()
-
     writingFailureCount := 0
     if connection.IsClosed() {
         LogInfo("Room " + room.ID, "Observer disconnected: " + player.ID + ".")
