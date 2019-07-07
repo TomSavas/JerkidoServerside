@@ -12,6 +12,7 @@ import (
 
 type RoomState int
 const (
+    // Deprecated
     WaitingForPlayers RoomState = 0
     Transition        RoomState = 1
     CountingDown_3    RoomState = 2
@@ -50,7 +51,7 @@ func NewRoom(ownerID string, creatorIsPlayer bool, playTimeInSeconds int) *Room 
         observers = []string{ownerID}
     }
 
-    return &Room{GenerateUniqueRoomCode(GetRooms()), WaitingForPlayers, players, observers, ownerID, time.Now().UTC().String(), playTimeInSeconds}
+    return &Room{GenerateUniqueRoomCode(GetRooms()), End, players, observers, ownerID, time.Now().UTC().String(), playTimeInSeconds}
 }
 
 func GetExistingRoom(roomID string) *Room {
