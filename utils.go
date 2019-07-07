@@ -74,6 +74,14 @@ func ChannelHasValueWithTimeout(channel chan interface{}, timeoutInSeconds int) 
     }
 }
 
+func DisconnectPlayer(player *Player, room *Room, connection *WSConnection)
+{
+    player.Online = false
+    player.SaveScore()
+    room.RemovePlayer(player.ID)
+    connection.Close()
+}
+
 func ClearTerminal() {
     c := exec.Command("clear")
     c.Stdout = os.Stdout
