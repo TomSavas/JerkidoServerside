@@ -126,9 +126,47 @@ func (room *Room) Read() {
     Fatal(err, "Failed reading a room from the database")
 }
 
+func (room *Room) AddPlayer(playerID string) {
+    playerExists := false
+    for _, id := range(room.PlayerIDs) {
+        if id == playerID {
+            playerExists = true
+            break
+        }
+    }
+
+    if !playerExists {
+        room.PlayerIDs = append(room.PlayerIDs, playerID)
+        _, err := room.ChangeField("playerids", room.PlayerIDs)
+        Fatal(err, "Failed to update room state")
+    }
+}
+
+func (room *Room) RemovePlayer(playerID string) {
+    playerIndex := -1
+    for index, id := range(room.PlayerIDs) {
+        if id == playerID {
+            playerIndex = index
+            break
+        }
+    }
+
+    if playerIndex != -1 {
+        room.PlayerIDs[playerIndex] = room.PlayerIDs[len(room.PlayerIDs) - 1]
+        room.PlayerIDs = room.PlayerIDs[:len(room.PlayerIDs) - 1]
+
+        _, err := room.ChangeField("playerids", room.PlayerIDs)
+        Fatal(err, "Failed to update room state")
+    }
+}
+
 func (room *Room) ChangeRoomState(state RoomState) {
-    _, err := GetRooms().Upsert(bson.M{"id": room.ID}, bson.M{"$set": bson.M{"state" : state}})
+    _, err := room.ChangeField("state", state)
     Fatal(err, "Failed to update room state")
+}
+
+func (room *Room) ChangeField(fieldName string, field interface{}) (*mgo.ChangeInfo, error){
+    return GetRooms().Upsert(bson.M{"id": room.ID}, bson.M{"$set": bson.M{fieldName: field}})
 }
 
 func (room *Room) Write() *mgo.ChangeInfo {
