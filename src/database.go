@@ -9,7 +9,8 @@ var session *mgo.Session
 var collections map[string]*mgo.Collection
 
 func ConnectToDatabase() error {
-    session, err := mgo.Dial("localhost")
+    session, err := mgo.Dial("mongo:27017")
+    //session, err := mgo.Dial("localhost")
     db = session.DB("JerkidoData")
     collections = make(map[string]*mgo.Collection)
 
