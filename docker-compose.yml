@@ -1,0 +1,15 @@
+version: '3.7'
+services:
+    jerkido:
+        build: .
+        ports:
+            - "8080:8080"
+        volumes:
+            - type: bind
+              source: ./log
+              target: /go/src/jerkido/log
+        restart: always
+        depends_on:
+            - mongo
+    mongo:
+        image: "mongo:latest"
