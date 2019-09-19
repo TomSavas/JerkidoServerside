@@ -225,7 +225,7 @@ func (room *Room) PlayersInRoom() ([]Player, error) {
 }
 
 func GenerateUniqueRoomCode(rooms *mgo.Collection) string {
-	code := GenerateRoomCode(5)
+	code := GenerateRoomCode(6)
 
 	if (rooms.Find(bson.M{"ID": code}) == nil) {
 		return GenerateUniqueRoomCode(rooms)
@@ -239,13 +239,8 @@ func GenerateRoomCode(codeLength int) string {
 	var code bytes.Buffer
 
 	for i := 0; i < codeLength; i++ {
-		if rng.Intn(2) == 0 {
-			letter := rng.Intn(26)
-			code.WriteString(string(letter + 65))
-		} else {
-			number := rng.Intn(10)
-			code.WriteString(string(number + 48))
-		}
+        number := rng.Intn(10)
+        code.WriteString(string(number + 48))
 	}
 
 	return code.String()
